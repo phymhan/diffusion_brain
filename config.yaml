@@ -1,12 +1,16 @@
 model:  # NOTE: model is not used
   base_learning_rate: 2.0e-06
-  target: models.ddpm_v2_conditioned.DDPM
+  target: models.ddpm.DDPM
   params:
     linear_start: 0.0015
     linear_end: 0.0205
     log_every_t: 200
     # monitor: val/loss_simple_ema
-    first_stage_key: image
+    latent_shape:
+    - 3
+    - 20
+    - 28
+    - 20
     unet_config:
       target: models.unet_v2_conditioned.UNetModel
       params:
@@ -39,7 +43,7 @@ data:
   target: main.DataModuleFromConfig
   params:
     batch_size: 2
-    num_workers: 0
+    num_workers: 1
     wrap: false
     train:
       target: utils.DummyDataset
@@ -62,3 +66,4 @@ lightning:
 
   trainer:
     benchmark: True
+    # accelerator: cuda

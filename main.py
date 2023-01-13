@@ -143,7 +143,6 @@ def get_parser(**parser_kwargs):
     )
     parser.add_argument("--actual_resume", 
         type=str,
-        required=True,
         help="Path to model to actually resume from")
     return parser
 
@@ -321,7 +320,7 @@ class ImageLogger(Callback):
         self.batch_freq = batch_frequency
         self.max_images = max_images
         self.logger_log_images = {
-            pl.loggers.TestTubeLogger: self._testtube,
+            # pl.loggers.TestTubeLogger: self._testtube,
         }
         self.log_steps = [2 ** n for n in range(int(np.log2(self.batch_freq)) + 1)]
         if not increase_log_steps:
@@ -426,7 +425,7 @@ class CUDACallback(Callback):
         torch.cuda.synchronize(trainer.root_gpu)
         self.start_time = time.time()
 
-    def on_train_epoch_end(self, trainer, pl_module, outputs):
+    def on_train_epoch_end(self, trainer, pl_module, *args, **kwargs):
         torch.cuda.synchronize(trainer.root_gpu)
         max_memory = torch.cuda.max_memory_allocated(trainer.root_gpu) / 2 ** 20
         epoch_time = time.time() - self.start_time
@@ -560,15 +559,10 @@ if __name__ == "__main__":
         trainer_opt = argparse.Namespace(**trainer_config)
         lightning_config.trainer = trainer_config
 
-        # model
-        # NOTE: ========== model ===========
-        
         if opt.actual_resume:
             model = load_model_from_config(config=config, ckpt=opt.actual_resume)
         else:
             model = instantiate_from_config(config.model)
-        # model = torch.load("./trained_models/ddpm/data/model.pth")
-        # ================================
 
         # trainer and callbacks
         trainer_kwargs = dict()
@@ -585,7 +579,7 @@ if __name__ == "__main__":
                 }
             },
             "testtube": {
-                "target": "pytorch_lightning.loggers.TestTubeLogger",
+                "target": "utils.TestTubeLogger",
                 "params": {
                     "name": "testtube",
                     "save_dir": logdir,

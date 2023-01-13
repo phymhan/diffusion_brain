@@ -8,6 +8,9 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from models.unet_v2_conditioned import UNetModel
+import pytorch_lightning as pl
+from contextlib import contextmanager
+from pytorch_lightning.utilities.distributed import rank_zero_only
 
 
 def exists(x):
@@ -57,25 +60,27 @@ def make_beta_schedule(schedule, n_timestep, linear_start=1e-4, linear_end=2e-2,
     return betas.numpy()
 
 
-class DDPM(nn.Module):
+class DDPM(pl.LightningModule):
     def __init__(
-            self,
-            unet_config,
-            timesteps: int = 1000,
-            beta_schedule="linear",
-            loss_type="l2",
-            log_every_t=100,
-            clip_denoised=False,
-            linear_start=1e-4,
-            linear_end=2e-2,
-            cosine_s=8e-3,
-            original_elbo_weight=0.,
-            v_posterior=0.,  # weight for choosing posterior variance as sigma = (1-v) * beta_tilde + v * beta
-            l_simple_weight=1.,
-            parameterization="eps",  # all assuming fixed variance schedules
-            learn_logvar=False,
-            logvar_init=0.,
-            conditioning_key=None,
+        self,
+        unet_config,
+        timesteps: int = 1000,
+        beta_schedule="linear",
+        loss_type="l2",
+        log_every_t=100,
+        clip_denoised=False,
+        linear_start=1e-4,
+        linear_end=2e-2,
+        cosine_s=8e-3,
+        original_elbo_weight=0.,
+        v_posterior=0.,  # weight for choosing posterior variance as sigma = (1-v) * beta_tilde + v * beta
+        l_simple_weight=1.,
+        parameterization="eps",  # all assuming fixed variance schedules
+        learn_logvar=False,
+        logvar_init=0.,
+        conditioning_key=None,
+        latent_shape=[3, 20, 28, 20],
+        **kwargs
     ):
         super().__init__()
         assert parameterization in ["eps", "x0"], 'currently only supporting "eps" and "x0"'
@@ -85,6 +90,7 @@ class DDPM(nn.Module):
             conditioning_key = None
         self.conditioning_key = conditioning_key
         self.model = DiffusionWrapper(unet_config, conditioning_key)
+        self.latent_shape = latent_shape
 
         self.clip_denoised = clip_denoised
         self.log_every_t = log_every_t
@@ -381,7 +387,30 @@ class DDPM(nn.Module):
             return x_recon[0]
         else:
             return x_recon
-
+    
+    def get_learned_conditioning(self, c):
+        # NOTE: reload this function with conditioning part in inference
+        # NOTE: cond = torch.Tensor([[gender, age, ventricular, brain]])
+        # latent_shape = [0] + self.latent_shape
+        cond_crossatten = c.unsqueeze(1)  # [batch, 1, 4]
+        cond_concat = c.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)  # [batch, 4, 1, 1, 1]
+        cond_concat = cond_concat.expand(list(c.shape[0:2]) + list(self.latent_shape[1:]))
+        conditioning = {
+            "c_concat": [cond_concat.float().to(c.device)],
+            "c_crossattn": [cond_crossatten.float().to(c.device)],
+        }
+        return conditioning
+    
+    def get_input(self, batch, key='image'):
+        x = batch['pixel_values']
+        c = self.get_learned_conditioning(batch['conditioning'])  # NOTE: hard coded
+        return x, c
+    
+    def training_step(self, batch, batch_idx):
+        x, c = self.get_input(batch)
+        loss, loss_dict = self(x, c)
+        self.log_dict(loss_dict, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+        return loss
 
 
 class DiffusionWrapper(nn.Module):
