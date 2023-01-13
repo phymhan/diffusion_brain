@@ -48,27 +48,32 @@ def main(
     brain = 0.5,
     output_dir = "./outputs/",
     device = "cuda",
+    config = None,
+    ckpt_ddpm = "./trained_models/ddpm/data/model.pth",
+    ckpt_vae = "./trained_models/vae/data/model.pth",
     verbose = True,
 ):
     # Load model
     device = torch.device(device)
-    vae = torch.load("./trained_models/vae/data/model.pth")
+    vae = torch.load(ckpt_vae)
     vae.to(device)
     vae.eval()
 
-    # model = torch.load("./trained_models/ddpm/data/model.pth")
-    from omegaconf import OmegaConf
-    from utils import instantiate_from_config
-    config = OmegaConf.load("./config.yaml")
-    model = instantiate_from_config(config.model)
-    sd = torch.load("./new_model.pth")
-    m, u = model.load_state_dict(sd, strict=False)
-    if len(m) > 0 and verbose:
-        print("missing keys:")
-        print(m)
-    if len(u) > 0 and verbose:
-        print("unexpected keys:")
-        print(u)
+    if config is None:
+        model = torch.load(ckpt_ddpm)
+    else:  # load from config
+        from omegaconf import OmegaConf
+        from utils import instantiate_from_config
+        config = OmegaConf.load(config)
+        model = instantiate_from_config(config.model)
+        sd = torch.load(ckpt_ddpm)
+        m, u = model.load_state_dict(sd, strict=False)
+        if len(m) > 0 and verbose:
+            print("missing keys:")
+            print(m)
+        if len(u) > 0 and verbose:
+            print("unexpected keys:")
+            print(u)
     model.to(device)
     model.eval()
 
