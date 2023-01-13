@@ -16,14 +16,16 @@ def sample_fn(
     device="cuda",
 ):
     latent_shape = [1, 3, 20, 28, 20]
-    # cond_crossatten = cond.unsqueeze(1)
-    # cond_concat = cond.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-    # cond_concat = cond_concat.expand(list(cond.shape[0:2]) + list(latent_shape[2:]))
-    # conditioning = {
-    #     "c_concat": [cond_concat.float().to(device)],
-    #     "c_crossattn": [cond_crossatten.float().to(device)],
-    # }
-    conditioning = model.get_learned_conditioning(cond.to(device))
+    if hasattr(model, 'get_learned_conditioning'):
+        conditioning = model.get_learned_conditioning(cond.to(device))
+    else:
+        cond_crossatten = cond.unsqueeze(1)
+        cond_concat = cond.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+        cond_concat = cond_concat.expand(list(cond.shape[0:2]) + list(latent_shape[2:]))
+        conditioning = {
+            "c_concat": [cond_concat.float().to(device)],
+            "c_crossattn": [cond_crossatten.float().to(device)],
+        }
 
     ddim = DDIMSampler(model)
     num_timesteps = 50

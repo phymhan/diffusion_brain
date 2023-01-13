@@ -540,7 +540,6 @@ if __name__ == "__main__":
         configs = [OmegaConf.load(cfg) for cfg in opt.base]
         cli = OmegaConf.from_dotlist(unknown)
         config = OmegaConf.merge(*configs, cli)
-        # config = OmegaConf.from_dotlist(unknown)
         # NOTE: ========== config ==========
         lightning_config = config.pop("lightning", OmegaConf.create())
         # merge trainer cli with config

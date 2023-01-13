@@ -391,7 +391,6 @@ class DDPM(pl.LightningModule):
     def get_learned_conditioning(self, c):
         # NOTE: reload this function with conditioning part in inference
         # NOTE: cond = torch.Tensor([[gender, age, ventricular, brain]])
-        # latent_shape = [0] + self.latent_shape
         cond_crossatten = c.unsqueeze(1)  # [batch, 1, 4]
         cond_concat = c.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)  # [batch, 4, 1, 1, 1]
         cond_concat = cond_concat.expand(list(c.shape[0:2]) + list(self.latent_shape[1:]))
