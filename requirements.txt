@@ -1,0 +1,11 @@
+einops>=0.3.2
+gradio==3.3.1
+mediapy==1.0.3
+mlflow
+nibabel
+omegaconf==2.1.1
+opencv-python==4.6.0.66
+plotly==5.9.0
+scikit-image==0.19.3
+tqdm
+torch==1.11.0

@@ -1,0 +1,64 @@
+model:  # NOTE: model is not used
+  base_learning_rate: 2.0e-06
+  target: models.ddpm_v2_conditioned.DDPM
+  params:
+    linear_start: 0.0015
+    linear_end: 0.0205
+    log_every_t: 200
+    # monitor: val/loss_simple_ema
+    first_stage_key: image
+    unet_config:
+      target: models.unet_v2_conditioned.UNetModel
+      params:
+        image_size: 28
+        in_channels: 7
+        out_channels: 3
+        model_channels: 256
+        attention_resolutions:
+        # note: this isn\t actually the resolution but
+        # the downsampling factor, i.e. this corresnponds to
+        # attention on spatial resolution 8,16,32, as the
+        # spatial reolution of the latents is 64 for f4
+        - 8
+        - 4
+        - 2
+        num_res_blocks: 2
+        channel_mult:
+        - 1
+        - 2
+        - 3
+        num_head_channels: -1
+        num_heads_upsample: 1
+        dropout: 0.0
+        use_spatial_transformer: True
+        context_dim: 4
+        use_scale_shift_norm: False
+        resblock_updown: True
+
+data:
+  target: main.DataModuleFromConfig
+  params:
+    batch_size: 2
+    num_workers: 0
+    wrap: false
+    train:
+      target: utils.DummyDataset
+      params:
+        num_records: 100
+    validation:
+      target: utils.DummyDataset
+      params:
+        num_records: 10
+
+
+lightning:
+  callbacks:
+    image_logger:
+      target: main.ImageLogger
+      params:
+        batch_frequency: 5000
+        max_images: 8
+        increase_log_steps: False
+
+  trainer:
+    benchmark: True
