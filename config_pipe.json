@@ -1,0 +1,17 @@
+{
+    "_class_name": "BrainDiffusionPipeline",
+    "_diffusers_version": "0.11.1",
+    "requires_safety_checker": false,
+    "scheduler": [
+        "diffusers",
+        "DDIMScheduler"
+    ],
+    "unet": [
+        "models.unet",
+        "UNet3DConditionModel"
+    ],
+    "vae": [
+        "models.vae",
+        "AutoencoderKL"
+    ]
+}
