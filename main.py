@@ -246,7 +246,7 @@ class DataModuleFromConfig(pl.LightningDataModule):
         else:
             init_fn = None
 
-        # do not shuffle dataloader for iterable dataset
+        # do not shuffle dataloader for iterable d ataset
         shuffle = shuffle and (not is_iterable_dataset)
 
         return DataLoader(self.datasets["test"], batch_size=self.batch_size,

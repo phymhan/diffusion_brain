@@ -41,6 +41,7 @@ def sample_fn(
         x_hat = vae.reconstruct_ldm_outputs(latent_vectors).cpu()
 
     return x_hat.numpy()
+    # return latent_vectors
 
 
 def main(
@@ -58,6 +59,8 @@ def main(
     # Load model
     device = torch.device(device)
     vae = torch.load(ckpt_vae)
+    # from models.vae import AutoencoderKL
+    # vae = AutoencoderKL.from_pretrained("trained_models/pipe/vae")
     vae.to(device)
     vae.eval()
 

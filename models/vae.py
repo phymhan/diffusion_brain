@@ -1,11 +1,14 @@
 """
 AUTOENCODER WITH ARCHTECTURE FROM VERSION 2
 """
-from typing import Tuple
+from typing import Tuple, List, Optional, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from diffusers.modeling_utils import ModelMixin
+from diffusers.configuration_utils import ConfigMixin, register_to_config
+from diffusers.models.vae import AutoencoderKLOutput, DiagonalGaussianDistribution, DecoderOutput
 
 
 @torch.jit.script
@@ -238,22 +241,109 @@ class Decoder(nn.Module):
         return x
 
 
-class AutoencoderKL(nn.Module):
-    def __init__(self, embed_dim: int, hparams) -> None:
+class AutoencoderKL(ModelMixin, ConfigMixin):
+
+    @register_to_config
+    def __init__(
+        self,
+        embed_dim: int,
+        in_channels: int = 3,
+        out_channels: int = 3,
+        n_channels: int = 64,
+        z_channels: int = 3,
+        ch_mult: List[int] = [1, 2, 2, 2],
+        num_res_blocks: int = 2,
+        resolution: List[int] = [160, 224, 160],
+        attn_resolutions: List[int] = [],
+        use_logvar: bool = False,
+    ):
         super().__init__()
-        self.hparams = hparams
+        hparams = {
+            "in_channels": in_channels,
+            "out_channels": out_channels,
+            "n_channels": n_channels,
+            "z_channels": z_channels,
+            "ch_mult": ch_mult,
+            "num_res_blocks": num_res_blocks,
+            "resolution": resolution,
+            "attn_resolutions": attn_resolutions,
+        }
         self.encoder = Encoder(**hparams)
         self.decoder = Decoder(**hparams)
         self.quant_conv_mu = torch.nn.Conv3d(hparams["z_channels"], embed_dim, 1)
         self.quant_conv_log_sigma = torch.nn.Conv3d(hparams["z_channels"], embed_dim, 1)
         self.post_quant_conv = torch.nn.Conv3d(embed_dim, hparams["z_channels"], 1)
         self.embed_dim = embed_dim
+        self.use_slicing = False  # NOTE: hardcoded
+        self.use_logvar = use_logvar
 
-    def decode(self, z):
+    def encode(self, x: torch.FloatTensor, return_dict: bool = True, deterministic: bool = True) -> AutoencoderKLOutput:
+        h = self.encoder(x)
+        mu = self.quant_conv_mu(h)
+        logvar = self.quant_conv_log_sigma(h)
+        if not self.use_logvar:
+            logvar = 2 * logvar  # NOTE: `logvar` is actually log_sigma
+        moments = torch.cat([mu, logvar], dim=1)
+        posterior = DiagonalGaussianDistribution(moments, deterministic=deterministic)
+        if not return_dict:
+            return (posterior,)
+        return AutoencoderKLOutput(latent_dist=posterior)
+
+    def _decode(self, z: torch.FloatTensor, return_dict: bool = True) -> Union[DecoderOutput, torch.FloatTensor]:
+        z = self.post_quant_conv(z)
+        dec = self.decoder(z)
+
+        if not return_dict:
+            return (dec,)
+
+        return DecoderOutput(sample=dec)
+
+    def decode_legacy(self, z):
         z = self.post_quant_conv(z)
         dec = self.decoder(z)
         return dec
 
+    def decode(self, z: torch.FloatTensor, return_dict: bool = True) -> Union[DecoderOutput, torch.FloatTensor]:
+        if self.use_slicing and z.shape[0] > 1:
+            decoded_slices = [self._decode(z_slice).sample for z_slice in z.split(1)]
+            decoded = torch.cat(decoded_slices)
+        else:
+            decoded = self._decode(z).sample
+
+        if not return_dict:
+            return (decoded,)
+
+        return DecoderOutput(sample=decoded)
+    
+    def forward(
+        self,
+        sample: torch.FloatTensor,
+        sample_posterior: bool = False,
+        return_dict: bool = True,
+        generator: Optional[torch.Generator] = None,
+        deterministic: bool = False,
+    ) -> Union[DecoderOutput, torch.FloatTensor]:
+        r"""
+        Args:
+            sample (`torch.FloatTensor`): Input sample.
+            sample_posterior (`bool`, *optional*, defaults to `False`):
+                Whether to sample from the posterior.
+            return_dict (`bool`, *optional*, defaults to `True`):
+                Whether or not to return a [`DecoderOutput`] instead of a plain tuple.
+        """
+        x = sample
+        posterior = self.encode(x, deterministic=deterministic).latent_dist
+        if sample_posterior:
+            z = posterior.sample(generator=generator)
+        else:
+            z = posterior.mode()
+        dec = self.decode(z).sample
+
+        if not return_dict:
+            return (dec,)
+
+        return DecoderOutput(sample=dec)
+
     def reconstruct_ldm_outputs(self, z):
-        x_hat = self.decode(z)
+        x_hat = self.decode_legacy(z)
         return x_hat

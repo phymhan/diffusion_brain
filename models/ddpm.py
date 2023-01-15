@@ -340,9 +340,9 @@ class DDPM(pl.LightningModule):
         loss_simple = self.get_loss(model_output, target, mean=False).mean(dim=[1, 2, 3, 4])
         loss_dict.update({f'loss_simple': loss_simple.mean()})
 
-        logvar_t = self.logvar[t].to(x_start.device)
-        loss = loss_simple / torch.exp(logvar_t) + logvar_t
-        # loss = loss_simple / torch.exp(self.logvar) + self.logvar
+        # logvar_t = self.logvar[t].to(x_start.device)
+        # loss = loss_simple / torch.exp(logvar_t) + logvar_t
+        loss = loss_simple
         if self.learn_logvar:
             loss_dict.update({f'loss_gamma': loss.mean()})
             loss_dict.update({'logvar': self.logvar.data.mean()})

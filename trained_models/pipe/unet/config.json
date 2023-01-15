@@ -1,0 +1,31 @@
+{
+  "_class_name": "UNet3DConditionModel",
+  "_diffusers_version": "0.11.1",
+  "_name_or_path": "models.unet",
+  "sample_size": [
+    20,
+    28,
+    20
+  ],
+  "in_channels": 7,
+  "out_channels": 3,
+  "model_channels": 256,
+  "attention_resolutions": [
+    8,
+    4,
+    2
+  ],
+  "num_res_blocks": 2,
+  "channel_mult": [
+    1,
+    2,
+    3
+  ],
+  "num_head_channels": -1,
+  "num_heads_upsample": 1,
+  "dropout": 0.0,
+  "use_spatial_transformer": true,
+  "context_dim": 4,
+  "use_scale_shift_norm": false,
+  "resblock_updown": true
+}

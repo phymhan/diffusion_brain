@@ -7,11 +7,6 @@ import numpy as np
 from tqdm import tqdm
 from functools import partial
 
-from ldm.modules.diffusionmodules.util import make_ddim_sampling_parameters, make_ddim_timesteps, noise_like, \
-    extract_into_tensor
-
-import pdb
-st = pdb.set_trace
 
 class DDIM2Sampler(object):
     def __init__(self, model, schedule="linear", **kwargs):
@@ -83,8 +78,8 @@ class DDIM2Sampler(object):
                     print(f"conditioning is not a tensor")
 
         device = self.model.betas.device
-        C, H, W = shape
-        size = (batch_size, C, H, W)
+        C, H, W, D = shape
+        size = (batch_size, C, H, W, D)
 
         model_kwargs = {
             'conditioning': conditioning,
@@ -144,9 +139,9 @@ class DDIM2Sampler(object):
         et = self.apply_model(model, xt, t=t, **model_kwargs)
 
         # Compute the next x
-        at = torch.full((b, 1, 1, 1), alphas_cumprod[t], device=device)
+        at = torch.full((b, 1, 1, 1, 1), alphas_cumprod[t], device=device)
         
-        at_next = torch.full((b, 1, 1, 1), alphas_cumprod[t_next], device=device)
+        at_next = torch.full((b, 1, 1, 1, 1), alphas_cumprod[t_next], device=device)
         xt_next = torch.zeros_like(xt)
         x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()  # NOTE: pred_x0
         if eta == 0:
