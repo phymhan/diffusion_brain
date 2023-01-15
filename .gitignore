@@ -146,3 +146,13 @@ logs/
 */*.pt
 */*.ckpt
 debug*.py
+*.gif
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.tiff
+*.tif
+*.mp4
+*.avi
+*.mov

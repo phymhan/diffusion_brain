@@ -30,6 +30,11 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers.base import LightningLoggerBase, rank_zero_experiment
 from pytorch_lightning.utilities import rank_zero_deprecation, rank_zero_warn
 from pytorch_lightning.utilities.distributed import rank_zero_only
+import mediapy
+import cv2
+import imageio
+from skimage import img_as_ubyte
+from torchvision.io import write_video
 
 
 def get_obj_from_str(string, reload=False):
@@ -86,6 +91,94 @@ class DummyDataset(Dataset):
             'conditioning': torch.zeros(4),
         }
         return example
+
+
+def write_numpy_to_video(numpy_array, path, fps=12, crf=18, direction='axial', backend='mediapy'):
+    shape = numpy_array.shape
+    assert len(shape) == 3, f'Expected 3D array, got {len(shape)}D array.'
+    numpy_array = (numpy_array - numpy_array.min()) / (numpy_array.max() - numpy_array.min())
+    numpy_array = (numpy_array * 255).astype(np.uint8)
+    if backend == 'mediapy':
+        if direction == 'axial':
+            with mediapy.VideoWriter(path, shape=(shape[0], shape[1]), fps=fps, crf=crf) as w:
+                for idx in range(numpy_array.shape[2]):
+                    img = numpy_array[:, :, idx]
+                    img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+                    frame = img_as_ubyte(img)
+                    w.add_image(frame)
+        elif direction == 'sagittal':
+            with mediapy.VideoWriter(path, shape=(shape[2], shape[1]), fps=fps, crf=crf) as w:
+                for idx in range(numpy_array.shape[0]):
+                    img = np.rot90(numpy_array[idx, :, :])
+                    img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+                    frame = img_as_ubyte(img)
+                    w.add_image(frame)
+        elif direction == 'coronal':
+            with mediapy.VideoWriter(path, shape=(shape[2], shape[0]), fps=fps, crf=crf) as w:
+                for idx in range(numpy_array.shape[1]):
+                    img = np.rot90(np.flip(numpy_array, axis=1)[:, idx, :])
+                    img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+                    frame = img_as_ubyte(img)
+                    w.add_image(frame)
+        else:
+            raise NotImplementedError
+
+    elif backend == 'torchvision':
+        if direction == 'axial':
+            video_array = numpy_array.transpose(2, 0, 1)[:,:,:,None]
+            write_video(
+                path,
+                np.tile(video_array, (1, 1, 1, 3)),  # T, H, W, C
+                fps=fps,
+            )
+        elif direction == 'sagittal':
+            video_array = np.rot90(numpy_array, axes=(1, 2))[:,:,:,None]
+            write_video(
+                path,
+                np.tile(video_array, (1, 1, 1, 3)),  # T, H, W, C
+                fps=fps,
+            )
+        elif direction == 'coronal':
+            video_array = numpy_array.transpose(1, 0, 2)[:,:,:,None]
+            video_array = np.rot90(video_array, axes=(1, 2))
+            video_array = np.flip(video_array, axis=0)
+            write_video(
+                path,
+                np.tile(video_array, (1, 1, 1, 3)),  # T, H, W, C
+                fps=fps,
+            )
+        else:
+            raise NotImplementedError
+    
+    elif backend == 'imageio':
+        if direction == 'axial':
+            video_array = numpy_array.transpose(2, 0, 1)[:,:,:,None]
+            imageio.mimsave(
+                path,
+                np.tile(video_array, (1, 1, 1, 3)),  # T, H, W, C
+                fps=fps,
+            )
+        elif direction == 'sagittal':
+            video_array = np.rot90(numpy_array, axes=(1, 2))[:,:,:,None]
+            imageio.mimsave(
+                path,
+                np.tile(video_array, (1, 1, 1, 3)),  # T, H, W, C
+                fps=fps,
+            )
+        elif direction == 'coronal':
+            video_array = numpy_array.transpose(1, 0, 2)[:,:,:,None]
+            video_array = np.rot90(video_array, axes=(1, 2))
+            video_array = np.flip(video_array, axis=0)
+            imageio.mimsave(
+                path,
+                np.tile(video_array, (1, 1, 1, 3)),  # T, H, W, C
+                fps=fps,
+            )
+        else:
+            raise NotImplementedError
+    
+    else:
+        raise NotImplementedError
 
 
 class TestTubeLogger(LightningLoggerBase):

@@ -1,12 +1,9 @@
 # import random
 from pathlib import Path
-import cv2
-import mediapy
-import numpy as np
 import torch
-from skimage import img_as_ubyte
 from models.ddim import DDIMSampler
 import fire
+from utils import write_numpy_to_video
 
 
 def sample_fn(
@@ -41,7 +38,6 @@ def sample_fn(
         x_hat = vae.reconstruct_ldm_outputs(latent_vectors).cpu()
 
     return x_hat.numpy()
-    # return latent_vectors
 
 
 def main(
@@ -54,13 +50,11 @@ def main(
     config = None,
     ckpt_ddpm = "./trained_models/ddpm/data/model.pth",
     ckpt_vae = "./trained_models/vae/data/model.pth",
-    verbose = True,
+    backend = 'mediapy',
 ):
     # Load model
     device = torch.device(device)
     vae = torch.load(ckpt_vae)
-    # from models.vae import AutoencoderKL
-    # vae = AutoencoderKL.from_pretrained("trained_models/pipe/vae")
     vae.to(device)
     vae.eval()
 
@@ -73,10 +67,10 @@ def main(
         model = instantiate_from_config(config.model)
         sd = torch.load(ckpt_ddpm)
         m, u = model.load_state_dict(sd, strict=False)
-        if len(m) > 0 and verbose:
+        if len(m) > 0:
             print("missing keys:")
             print(m)
-        if len(u) > 0 and verbose:
+        if len(u) > 0:
             print("unexpected keys:")
             print(u)
     model.to(device)
@@ -86,40 +80,14 @@ def main(
     cond = torch.Tensor([[gender, age, ventricular, brain]])
 
     image_data = sample_fn(cond, vae, model, device=device)
-    image_data = image_data[0, 0, 5:-5, 5:-5, :-15]
-    image_data = (image_data - image_data.min()) / (image_data.max() - image_data.min())
-    image_data = (image_data * 255).astype(np.uint8)
-
+    image_data = image_data[0, 0]
+    
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
-
-    # Write frames to video
-    with mediapy.VideoWriter(
-        f"{str(output_dir)}/brain_axial.mp4", shape=(150, 214), fps=12, crf=18
-    ) as w:
-        for idx in range(image_data.shape[2]):
-            img = image_data[:, :, idx]
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-            frame = img_as_ubyte(img)
-            w.add_image(frame)
-
-    with mediapy.VideoWriter(
-        f"{str(output_dir)}/brain_sagittal.mp4", shape=(145, 214), fps=12, crf=18
-    ) as w:
-        for idx in range(image_data.shape[0]):
-            img = np.rot90(image_data[idx, :, :])
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-            frame = img_as_ubyte(img)
-            w.add_image(frame)
-
-    with mediapy.VideoWriter(
-        f"{str(output_dir)}/brain_coronal.mp4", shape=(145, 150), fps=12, crf=18
-    ) as w:
-        for idx in range(image_data.shape[1]):
-            img = np.rot90(np.flip(image_data, axis=1)[:, idx, :])
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-            frame = img_as_ubyte(img)
-            w.add_image(frame)
+    ext = "gif" if backend == "imageio" else "mp4"
+    write_numpy_to_video(image_data, output_dir / f"brain_axial.{ext}", direction="axial", backend=backend)
+    write_numpy_to_video(image_data, output_dir / f"brain_sagittal.{ext}", direction="sagittal", backend=backend)
+    write_numpy_to_video(image_data, output_dir / f"brain_coronal.{ext}", direction="coronal", backend=backend)
 
 
 if __name__ == "__main__":

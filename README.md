@@ -12,12 +12,30 @@ wget https://huggingface.co/spaces/Warvito/diffusion_brain/resolve/main/trained_
 ```shell
 python convert_state_dict.py
 ```
-
+## Inference
 To run inference:
 ```python
 from pipeline import BrainDiffusionPipeline
+from utils import write_numpy_to_video
 pipe = BrainDiffusionPipeline.from_pretrained('trained_models/pipe').to('cuda')
 image_data = pipe([0, 0.1, 0.5, 0.5])[0]  # prompt = [gender, age, ventricular, brain]; age is normalized as: age = (age - 44) / (82 - 44)
+write_numpy_to_video(image_data[0, 0], "brain_axial.mp4", direction="axial")
+```
+Please refer to `inference_pipe.py` for more details.
+
+## Training
+```shell
+CUDA_VISIBLE_DEVICES=0 python train_pipe.py \
+  --seed=29 \
+  --pretrained_model_name_or_path="trained_models/pipe"  \
+  --output_dir="logs/train" \
+  --resolution=512 \
+  --train_batch_size=2 \
+  --gradient_accumulation_steps=1 \
+  --learning_rate=5e-6 \
+  --lr_scheduler="constant" \
+  --lr_warmup_steps=0 \
+  --max_train_steps=1000
 ```
 
 # Latent Diffusion

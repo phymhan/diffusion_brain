@@ -3,64 +3,32 @@
 import importlib
 import inspect
 import os
-import re
 from dataclasses import dataclass
 import numpy as np
 from typing import Callable, List, Optional, Union
-from pathlib import Path
 
 import torch
-# from transformers import CLIPFeatureExtractor, CLIPTextModel, CLIPTokenizer
-from diffusers import AutoencoderKL, DDPMScheduler, UNet2DConditionModel
 import diffusers
-from diffusers import DiffusionPipeline, StableDiffusionPipeline
-from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
-from diffusers import StableDiffusionPipeline
+from diffusers import DiffusionPipeline
 from diffusers.utils import (
-    CONFIG_NAME,
-    DIFFUSERS_CACHE,
-    ONNX_WEIGHTS_NAME,
-    WEIGHTS_NAME,
     BaseOutput,
-    deprecate,
     is_accelerate_available,
-    is_safetensors_available,
     is_torch_version,
-    is_transformers_available,
     logging,
 )
 from diffusers.modeling_utils import _LOW_CPU_MEM_USAGE_DEFAULT
+from models.unet import UNet3DConditionModel
+from models.vae import AutoencoderKL
+from diffusers.schedulers import (
+    DDIMScheduler,
+    DPMSolverMultistepScheduler,
+    EulerAncestralDiscreteScheduler,
+    EulerDiscreteScheduler,
+    LMSDiscreteScheduler,
+    PNDMScheduler,
+)
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
-
-LOADABLE_CLASSES = {
-    "diffusers": {
-        "ModelMixin": ["save_pretrained", "from_pretrained"],
-        "SchedulerMixin": ["save_pretrained", "from_pretrained"],
-        "DiffusionPipeline": ["save_pretrained", "from_pretrained"],
-        "OnnxRuntimeModel": ["save_pretrained", "from_pretrained"],
-    },
-    "transformers": {
-        "PreTrainedTokenizer": ["save_pretrained", "from_pretrained"],
-        "PreTrainedTokenizerFast": ["save_pretrained", "from_pretrained"],
-        "PreTrainedModel": ["save_pretrained", "from_pretrained"],
-        "FeatureExtractionMixin": ["save_pretrained", "from_pretrained"],
-        "ProcessorMixin": ["save_pretrained", "from_pretrained"],
-        "ImageProcessingMixin": ["save_pretrained", "from_pretrained"],
-    },
-    "onnxruntime.training": {
-        "ORTModule": ["save_pretrained", "from_pretrained"],
-    },
-    "custom": {
-        "ModelMixin": ["save_pretrained", "from_pretrained"],
-        "SchedulerMixin": ["save_pretrained", "from_pretrained"],
-        "DiffusionPipeline": ["save_pretrained", "from_pretrained"],
-        "OnnxRuntimeModel": ["save_pretrained", "from_pretrained"],
-    },
-}
-ALL_IMPORTABLE_CLASSES = {}
-for library in LOADABLE_CLASSES:
-    ALL_IMPORTABLE_CLASSES.update(LOADABLE_CLASSES[library])
 
 
 @dataclass
@@ -70,24 +38,31 @@ class DiffusionPipelineOutput(BaseOutput):
 
 
 class BrainDiffusionPipeline(DiffusionPipeline):
-    def __init__(self, unet, scheduler, vae):
+    def __init__(
+        self,
+        vae: AutoencoderKL,
+        unet: UNet3DConditionModel,
+        scheduler: Union[
+            DDIMScheduler,
+            PNDMScheduler,
+            LMSDiscreteScheduler,
+            EulerDiscreteScheduler,
+            EulerAncestralDiscreteScheduler,
+            DPMSolverMultistepScheduler,
+        ],
+        requires_safety_checker: bool = False,
+    ):
         super().__init__()
         self.register_modules(vae=vae, unet=unet, scheduler=scheduler)
         self.vae_scale_factor = 2 ** (len(self.vae.config.ch_mult) - 1)
-        self.register_to_config(requires_safety_checker=False)
+        self.register_to_config(requires_safety_checker=requires_safety_checker)
+        # NOTE: this is a hack
+        self.config['unet'] = (unet.__module__, unet.config['_class_name'])
+        self.config['vae'] = (vae.__module__, vae.config['_class_name'])
     
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
-        cache_dir = kwargs.pop("cache_dir", DIFFUSERS_CACHE)
-        # resume_download = kwargs.pop("resume_download", False)
-        # force_download = kwargs.pop("force_download", False)
-        # proxies = kwargs.pop("proxies", None)
-        # local_files_only = kwargs.pop("local_files_only", False)
-        # use_auth_token = kwargs.pop("use_auth_token", None)
-        # revision = kwargs.pop("revision", None)
         torch_dtype = kwargs.pop("torch_dtype", None)
-        # custom_pipeline = kwargs.pop("custom_pipeline", None)
-        # custom_revision = kwargs.pop("custom_revision", None)
         provider = kwargs.pop("provider", None)
         sess_options = kwargs.pop("sess_options", None)
         device_map = kwargs.pop("device_map", None)
@@ -101,24 +76,6 @@ class BrainDiffusionPipeline(DiffusionPipeline):
         config_dict = cls.load_config(cached_folder)
 
         # 2. Load the pipeline class
-
-        # if custom_pipeline is not None:
-        #     if custom_pipeline.endswith(".py"):
-        #         path = Path(custom_pipeline)
-        #         # decompose into folder & file
-        #         file_name = path.name
-        #         custom_pipeline = path.parent.absolute()
-        #     else:
-        #         file_name = CUSTOM_PIPELINE_FILE_NAME
-
-        #     pipeline_class = get_class_from_dynamic_module(
-        #         custom_pipeline, module_file=file_name, cache_dir=cache_dir, revision=custom_revision
-        #     )
-        # elif cls != DiffusionPipeline:
-        #     pipeline_class = cls
-        # else:
-        #     diffusers_module = importlib.import_module(cls.__module__.split(".")[0])
-        #     pipeline_class = getattr(diffusers_module, config_dict["_class_name"])
         pipeline_class = cls
 
         # some modules can be passed directly to the init
@@ -212,9 +169,9 @@ class BrainDiffusionPipeline(DiffusionPipeline):
 
                 if issubclass(class_obj, torch.nn.Module):
                     loading_kwargs["torch_dtype"] = torch_dtype
-                if issubclass(class_obj, diffusers.OnnxRuntimeModel):
-                    loading_kwargs["provider"] = provider
-                    loading_kwargs["sess_options"] = sess_options
+                # if issubclass(class_obj, diffusers.OnnxRuntimeModel):
+                #     loading_kwargs["provider"] = provider
+                #     loading_kwargs["sess_options"] = sess_options
 
                 is_diffusers_model = issubclass(class_obj, diffusers.ModelMixin)
 
@@ -421,9 +378,9 @@ class BrainDiffusionPipeline(DiffusionPipeline):
 
         has_nsfw_concept = [False] * len(image)
 
-        # 10. Convert to PIL
-        if output_type == "mp4":
-            image = self.numpy_to_mp4(image)  # TODO: add support for mp4
+        # 10. Convert to MP4 or GIF
+        if output_type != "numpy":
+            raise NotImplementedError("only numpy is supported for now")
 
         if not return_dict:
             return (image, has_nsfw_concept)
